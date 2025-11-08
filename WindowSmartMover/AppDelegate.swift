@@ -42,6 +42,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsWindow: NSWindow?
     var aboutWindow: NSWindow?
     
+    // ディスプレイ記憶機能
+    // [ディスプレイID: [ウィンドウID: 座標]]
+    private var windowPositions: [String: [String: CGRect]] = [:]
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         // グローバル参照を設定
         globalAppDelegate = self
@@ -62,6 +66,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // アクセシビリティ権限をチェック
         checkAccessibilityPermissions()
+        
+        // ディスプレイ変更の監視を開始
+        setupDisplayChangeObserver()
         
         debugPrint("アプリが起動しました")
         debugPrint("接続されている画面数: \(NSScreen.screens.count)")
@@ -334,6 +341,178 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func debugPrint(_ message: String) {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         print("[\(timestamp)] \(message)")
+    }
+    
+    // MARK: - ディスプレイ記憶機能
+    
+    /// ディスプレイ変更の監視を開始
+    private func setupDisplayChangeObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersDidChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        debugPrint("✅ ディスプレイ変更の監視を開始しました")
+    }
+    
+    /// ディスプレイ構成が変更された時の処理
+    @objc private func screenParametersDidChange(_ notification: Notification) {
+        debugPrint("\n=== ディスプレイ構成が変更されました ===")
+        
+        let currentScreens = NSScreen.screens
+        let currentScreenIDs = currentScreens.map { getDisplayIdentifier(for: $0) }
+        
+        debugPrint("現在の画面数: \(currentScreens.count)")
+        for (index, screen) in currentScreens.enumerated() {
+            let id = getDisplayIdentifier(for: screen)
+            debugPrint("  画面\(index): \(id)")
+        }
+        
+        // 消えた画面を検出
+        let savedScreenIDs = Set(windowPositions.keys)
+        let removedScreenIDs = savedScreenIDs.subtracting(currentScreenIDs)
+        
+        if !removedScreenIDs.isEmpty {
+            debugPrint("⚠️ 外れた画面: \(removedScreenIDs.joined(separator: ", "))")
+            // 外れた画面の情報は保持（再接続時に復元するため）
+        }
+        
+        // 追加された画面を検出
+        let addedScreenIDs = Set(currentScreenIDs).subtracting(savedScreenIDs)
+        
+        if !addedScreenIDs.isEmpty {
+            debugPrint("✅ 接続された画面: \(addedScreenIDs.joined(separator: ", "))")
+            // 少し待ってから復元（画面が安定するまで）
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.restoreWindowsForScreens(addedScreenIDs)
+            }
+        }
+        
+        // 現在の全ウィンドウ位置を保存
+        saveAllWindowPositions()
+    }
+    
+    /// ディスプレイの識別子を生成（名前+解像度）
+    private func getDisplayIdentifier(for screen: NSScreen) -> String {
+        let name = screen.localizedName
+        let width = Int(screen.frame.width)
+        let height = Int(screen.frame.height)
+        return "\(name)_\(width)x\(height)"
+    }
+    
+    /// ウィンドウの識別子を生成（アプリ名+ウィンドウタイトル）
+    private func getWindowIdentifier(appName: String, windowTitle: String) -> String {
+        return "\(appName)_\(windowTitle)"
+    }
+    
+    /// 全ウィンドウの位置を保存
+    private func saveAllWindowPositions() {
+        debugPrint("📝 全ウィンドウの位置を保存中...")
+        
+        let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
+        guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            debugPrint("❌ ウィンドウリストの取得に失敗")
+            return
+        }
+        
+        let screens = NSScreen.screens
+        var savedCount = 0
+        
+        for window in windowList {
+            // layer 0（通常のウィンドウ）のみ対象
+            guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
+                  let boundsDict = window[kCGWindowBounds as String] as? [String: CGFloat],
+                  let ownerName = window[kCGWindowOwnerName as String] as? String else {
+                continue
+            }
+            
+            let windowTitle = (window[kCGWindowName as String] as? String) ?? "Untitled"
+            let windowID = getWindowIdentifier(appName: ownerName, windowTitle: windowTitle)
+            
+            let frame = CGRect(
+                x: boundsDict["X"] ?? 0,
+                y: boundsDict["Y"] ?? 0,
+                width: boundsDict["Width"] ?? 0,
+                height: boundsDict["Height"] ?? 0
+            )
+            
+            // このウィンドウがどの画面にあるか判定
+            for screen in screens {
+                if screen.frame.intersects(frame) {
+                    let displayID = getDisplayIdentifier(for: screen)
+                    
+                    if windowPositions[displayID] == nil {
+                        windowPositions[displayID] = [:]
+                    }
+                    windowPositions[displayID]?[windowID] = frame
+                    savedCount += 1
+                    break
+                }
+            }
+        }
+        
+        debugPrint("✅ \(savedCount)個のウィンドウ位置を保存しました")
+    }
+    
+    /// 指定された画面のウィンドウを復元
+    private func restoreWindowsForScreens(_ screenIDs: Set<String>) {
+        debugPrint("🔄 ウィンドウ位置の復元を開始...")
+        
+        var restoredCount = 0
+        
+        for screenID in screenIDs {
+            guard let savedWindows = windowPositions[screenID] else {
+                debugPrint("  画面 \(screenID) の保存情報がありません")
+                continue
+            }
+            
+            debugPrint("  画面 \(screenID) に \(savedWindows.count)個のウィンドウを復元します")
+            
+            // 現在の全ウィンドウを取得
+            let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
+            guard let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+                continue
+            }
+            
+            for (windowID, savedFrame) in savedWindows {
+                // windowIDからアプリ名を抽出
+                let components = windowID.split(separator: "_", maxSplits: 1)
+                guard components.count >= 1 else { continue }
+                let appName = String(components[0])
+                
+                // 該当するウィンドウを探す
+                for window in windowList {
+                    guard let ownerName = window[kCGWindowOwnerName as String] as? String,
+                          ownerName == appName,
+                          let ownerPID = window[kCGWindowOwnerPID as String] as? Int32,
+                          let layer = window[kCGWindowLayer as String] as? Int,
+                          layer == 0 else {
+                        continue
+                    }
+                    
+                    // Accessibility APIでウィンドウを移動
+                    let appRef = AXUIElementCreateApplication(ownerPID)
+                    var windowList: CFTypeRef?
+                    let result = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowList)
+                    
+                    if result == .success, let windows = windowList as? [AXUIElement], !windows.isEmpty {
+                        // 最初のウィンドウを移動（簡易版）
+                        var position = CGPoint(x: savedFrame.origin.x, y: savedFrame.origin.y)
+                        if let positionValue = AXValueCreate(.cgPoint, &position) {
+                            let setResult = AXUIElementSetAttributeValue(windows[0], kAXPositionAttribute as CFString, positionValue)
+                            if setResult == .success {
+                                restoredCount += 1
+                                debugPrint("    ✅ \(windowID) を復元しました")
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+        }
+        
+        debugPrint("✅ \(restoredCount)個のウィンドウを復元しました\n")
     }
     
     deinit {
