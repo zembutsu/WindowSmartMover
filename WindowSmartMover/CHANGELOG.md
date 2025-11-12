@@ -32,38 +32,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debug logs are stored in memory only and cleared on app termination
 - No sensitive information is written to disk
 
-## [Planned]
+### Planned
+- Multi-language support (internationalization)
+  - Phase 1: English as default UI and debug logs (in progress)
+  - Phase 2: Japanese localization
+  - Phase 3: Community-contributed languages
+
+## [Planned Features]
 
 ### Internationalization (i18n)
 Multi-language support to make the app accessible to international users.
 
 **Scope:**
 - **User-facing UI and messages** - Menu items, dialogs, buttons, settings, and all user-visible text
-- **Debug logs** - Convert to English for global accessibility
+- **Debug logs** - Translate to English for global accessibility
 
 **Current state:**
 - All UI text is in Japanese
-- Debug logs are in Japanese, preventing non-Japanese speakers from troubleshooting issues independently
+- Debug logs are currently in Japanese, which prevents non-Japanese speakers from independently troubleshooting issues
 
 **Implementation approach:**
 
 **Phase 1: English default (Priority)**
-1. Convert all UI strings to English
+1. Translate all UI strings to English
    - Menu items
    - Settings dialog
    - Debug log viewer
    - About window
    - Alert messages
-2. Convert all debug logs to English
-   - This is critical for enabling international users to troubleshoot issues
-   - Enables easier collaboration on bug reports
-   - Makes Stack Overflow/GitHub issue searches effective
-3. Convert code comments to English
+2. Translate all debug logs to English
+   - This enables international users to troubleshoot issues independently
+   - Facilitates collaboration on bug reports
+   - Enables effective Stack Overflow/GitHub issue searches
+3. Translate code comments to English
    - Improves code readability for international contributors
    - Facilitates open-source collaboration
    - Makes the codebase more maintainable globally
 4. Implement NSLocalizedString framework for all user-facing text
-   - Prepare infrastructure for future localizations
+   - Prepares infrastructure for future localizations
 
 **Phase 2: Japanese localization**
 1. Create Japanese .strings files
@@ -75,10 +81,10 @@ Multi-language support to make the app accessible to international users.
 - Consider: Chinese, Korean, Spanish, French, German
 
 **Rationale:**
-- **English debug logs are essential** - Without English logs, non-Japanese users cannot diagnose issues, severely limiting the app's reach
-- English as default UI maximizes potential user base globally
-- Phased approach allows for stable implementation without major refactoring
-- Separating UI localization from debug logs provides optimal developer and user experience
+- English debug logs are essential for international troubleshooting
+- English as the default UI maximizes the global user base
+- Phased approach enables stable implementation without major refactoring
+- Separating UI localization from debug logging optimizes both developer and user experience
 
 ## [1.1.0] - 2025-10-18
 
@@ -91,7 +97,7 @@ Multi-language support to make the app accessible to international users.
 - Menu bar integration with system tray icon
 
 ### Technical Details
-- macOS menu bar application
-- Uses Accessibility API for window manipulation
-- Swift 5.x with SwiftUI for settings interface
-- Carbon API for global hotkey registration
+- Built as macOS menu bar application
+- Used Accessibility API for window manipulation
+- Implemented in Swift 5.x with SwiftUI for settings interface
+- Utilized Carbon API for global hotkey registration
