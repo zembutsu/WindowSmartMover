@@ -256,7 +256,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let modifierString = HotKeySettings.shared.getModifierString()
         
         // Ctrl + Option + Command + 右矢印
-        var gMyHotKeyID1 = EventHotKeyID(signature: OSType(0x4D4F5652), id: 1) // 'MOVR'
+        let gMyHotKeyID1 = EventHotKeyID(signature: OSType(0x4D4F5652), id: 1) // 'MOVR'
         var hotKey1: EventHotKeyRef?
         let registerStatus1 = RegisterEventHotKey(UInt32(kVK_RightArrow), modifiers, gMyHotKeyID1, GetApplicationEventTarget(), 0, &hotKey1)
         
@@ -268,7 +268,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // Ctrl + Option + Command + 左矢印
-        var gMyHotKeyID2 = EventHotKeyID(signature: OSType(0x4D4F564C), id: 2) // 'MOVL'
+        let gMyHotKeyID2 = EventHotKeyID(signature: OSType(0x4D4F564C), id: 2) // 'MOVL'
         var hotKey2: EventHotKeyRef?
         let registerStatus2 = RegisterEventHotKey(UInt32(kVK_LeftArrow), modifiers, gMyHotKeyID2, GetApplicationEventTarget(), 0, &hotKey2)
         
@@ -352,7 +352,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // 次の画面のインデックスを計算
-        var nextScreenIndex = (currentScreenIndex + direction + screens.count) % screens.count
+        let nextScreenIndex = (currentScreenIndex + direction + screens.count) % screens.count
         debugPrint("次の画面インデックス: \(nextScreenIndex)")
         
         let currentScreen = screens[currentScreenIndex]
@@ -556,7 +556,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let appName = String(components[0])
                 
                 // 現在のウィンドウリストから該当するものを探す
-                var found = false
                 for window in windowList {
                     guard let ownerName = window[kCGWindowOwnerName as String] as? String,
                           ownerName == appName,
@@ -569,7 +568,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         continue
                     }
                     
-                    found = true
                     debugPrint("      ✓ ウィンドウ発見: \(ownerName)")
                     
                     let currentFrame = CGRect(
