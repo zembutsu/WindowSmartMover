@@ -1955,13 +1955,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                     currentFrame.origin.x < (mainScreen.frame.origin.x + mainScreen.frame.width)
                 
                 if !isOnMainScreen {
-                    // Already on external display is normal, change log level
                     if isCGWindowIDMatch {
-                        verbosePrint("      ✓ Already on external display - X: \(Int(currentFrame.origin.x))")
+                        // Check if position has drifted from saved target (#84)
+                        let savedFrame = savedInfo.frame
+                        let positionDrift = max(
+                            abs(currentFrame.origin.x - savedFrame.origin.x),
+                            abs(currentFrame.origin.y - savedFrame.origin.y)
+                        )
+                        if positionDrift <= 20 {
+                            verbosePrint("      ✓ Already on external display - X: \(Int(currentFrame.origin.x))")
+                            continue
+                        }
+                        // Position drifted — proceed to move
+                        debugPrint("      🔀 On external display but drifted (\(Int(positionDrift))px) - will restore")
                     } else {
                         verbosePrint("      ⚠️ Not on main screen (skip) - X: \(Int(currentFrame.origin.x))")
+                        continue
                     }
-                    continue
                 }
                 
                 verbosePrint("      ✓ On main screen - X: \(Int(currentFrame.origin.x))")
@@ -1989,8 +1999,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             // CoreFoundation type cast always succeeds after API success
                             if AXValueGetValue(currentPosValue as! AXValue, .cgPoint, &currentPoint) {
                                 // Check if current position matches current window position
-                                if abs(currentPoint.x - currentFrame.origin.x) < 50 &&
-                                   abs(currentPoint.y - currentFrame.origin.y) < 50 {
+                                // CGWindowID match: use wider tolerance (coordinate systems diverge after display reconnection) (#84)
+                                let tolerance: CGFloat = isCGWindowIDMatch ? 200 : 50
+                                if abs(currentPoint.x - currentFrame.origin.x) < tolerance &&
+                                   abs(currentPoint.y - currentFrame.origin.y) < tolerance {
                                     // Move to saved coordinates
                                     var position = CGPoint(x: savedFrame.origin.x, y: savedFrame.origin.y)
                                     if let positionValue = AXValueCreate(.cgPoint, &position) {
