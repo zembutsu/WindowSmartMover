@@ -226,6 +226,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let maxRestoreRetries: Int = 2
     private let restoreRetryDelay: TimeInterval = 3.0
     
+    // Snapshot overwrite guard (prevents takeWindowSnapshot from overwriting during restore)
+    private var restorePending = false
+    
     // Fallback restoration feature (triggers if no display event after stabilization)
     private let fallbackWaitDelay: TimeInterval = 3.0
     
@@ -1297,6 +1300,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         debugPrint("Waiting \(String(format: "%.1f", totalDelay))s before restore") 
         
+        // Guard: prevent takeWindowSnapshot() from overwriting Slot 0 during restore
+        restorePending = true
+        
         timerManager.scheduleRestore(delay: totalDelay) { [weak self] in
             guard let self = self else { return }
             
@@ -1311,6 +1317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // If restore succeeded and 2+ screens
             if restoredCount > 0 && NSScreen.screens.count >= 2 {
                 self.restoreRetryCount = 0
+                self.restorePending = false
                 self.schedulePostDisplayConnectionSnapshot()
             } else if NSScreen.screens.count >= 2 && self.restoreRetryCount < self.maxRestoreRetries {
                 // If restore failed and retry is available
@@ -1323,6 +1330,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } else {
                 self.restoreRetryCount = 0
+                self.restorePending = false
                 debugPrint("⏭️ Skipping snapshot scheduling (restored: \(restoredCount), screens: \(NSScreen.screens.count))")
             }
         }
@@ -1422,6 +1430,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func takeWindowSnapshot() {
         // Skip if monitoring is paused (display sleep, system sleep, etc.)
         guard isMonitoringEnabled else {
+            return
+        }
+        
+        // Skip while restore is in progress (prevent overwriting good pre-sleep snapshot)
+        guard !restorePending else {
+            verbosePrint("📸 Snapshot skipped (restore pending)")
             return
         }
         
