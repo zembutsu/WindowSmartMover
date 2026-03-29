@@ -226,6 +226,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let maxRestoreRetries: Int = 2
     private let restoreRetryDelay: TimeInterval = 3.0
     
+    // Snapshot overwrite guard (prevents takeWindowSnapshot from overwriting during restore)
+    private var restorePending = false
+    
     // Fallback restoration feature (triggers if no display event after stabilization)
     private let fallbackWaitDelay: TimeInterval = 3.0
     
@@ -1297,6 +1300,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         debugPrint("Waiting \(String(format: "%.1f", totalDelay))s before restore") 
         
+        // Guard: prevent takeWindowSnapshot() from overwriting Slot 0 during restore
+        restorePending = true
+        
         timerManager.scheduleRestore(delay: totalDelay) { [weak self] in
             guard let self = self else { return }
             
@@ -1311,6 +1317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // If restore succeeded and 2+ screens
             if restoredCount > 0 && NSScreen.screens.count >= 2 {
                 self.restoreRetryCount = 0
+                self.restorePending = false
                 self.schedulePostDisplayConnectionSnapshot()
             } else if NSScreen.screens.count >= 2 && self.restoreRetryCount < self.maxRestoreRetries {
                 // If restore failed and retry is available
@@ -1323,6 +1330,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } else {
                 self.restoreRetryCount = 0
+                self.restorePending = false
                 debugPrint("⏭️ Skipping snapshot scheduling (restored: \(restoredCount), screens: \(NSScreen.screens.count))")
             }
         }
@@ -1422,6 +1430,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func takeWindowSnapshot() {
         // Skip if monitoring is paused (display sleep, system sleep, etc.)
         guard isMonitoringEnabled else {
+            return
+        }
+        
+        // Skip while restore is in progress (prevent overwriting good pre-sleep snapshot)
+        guard !restorePending else {
+            verbosePrint("📸 Snapshot skipped (restore pending)")
             return
         }
         
@@ -1955,13 +1969,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                                     currentFrame.origin.x < (mainScreen.frame.origin.x + mainScreen.frame.width)
                 
                 if !isOnMainScreen {
-                    // Already on external display is normal, change log level
                     if isCGWindowIDMatch {
-                        verbosePrint("      ✓ Already on external display - X: \(Int(currentFrame.origin.x))")
+                        // Check if position has drifted from saved target (#84)
+                        let savedFrame = savedInfo.frame
+                        let positionDrift = max(
+                            abs(currentFrame.origin.x - savedFrame.origin.x),
+                            abs(currentFrame.origin.y - savedFrame.origin.y)
+                        )
+                        if positionDrift <= 20 {
+                            verbosePrint("      ✓ Already on external display - X: \(Int(currentFrame.origin.x))")
+                            continue
+                        }
+                        // Position drifted — proceed to move
+                        debugPrint("      🔀 On external display but drifted (\(Int(positionDrift))px) - will restore")
                     } else {
                         verbosePrint("      ⚠️ Not on main screen (skip) - X: \(Int(currentFrame.origin.x))")
+                        continue
                     }
-                    continue
                 }
                 
                 verbosePrint("      ✓ On main screen - X: \(Int(currentFrame.origin.x))")
@@ -1989,8 +2013,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             // CoreFoundation type cast always succeeds after API success
                             if AXValueGetValue(currentPosValue as! AXValue, .cgPoint, &currentPoint) {
                                 // Check if current position matches current window position
-                                if abs(currentPoint.x - currentFrame.origin.x) < 50 &&
-                                   abs(currentPoint.y - currentFrame.origin.y) < 50 {
+                                // CGWindowID match: use wider tolerance (coordinate systems diverge after display reconnection) (#84)
+                                let tolerance: CGFloat = isCGWindowIDMatch ? 200 : 50
+                                if abs(currentPoint.x - currentFrame.origin.x) < tolerance &&
+                                   abs(currentPoint.y - currentFrame.origin.y) < tolerance {
                                     // Move to saved coordinates
                                     var position = CGPoint(x: savedFrame.origin.x, y: savedFrame.origin.y)
                                     if let positionValue = AXValueCreate(.cgPoint, &position) {
